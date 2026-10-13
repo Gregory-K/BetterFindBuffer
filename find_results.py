@@ -1,6 +1,10 @@
+import os
+import re
+import shutil
+
 import sublime
 import sublime_plugin
-import re, os, shutil
+
 
 class FindInFilesOpenFileCommand(sublime_plugin.TextCommand):
     def run(self, edit):
@@ -9,7 +13,7 @@ class FindInFilesOpenFileCommand(sublime_plugin.TextCommand):
             line_no = self.get_line_no(sel)
             file_name = self.get_file(sel)
             if line_no and file_name:
-                file_loc = "%s:%s" % (file_name, line_no)
+                file_loc = f"{file_name}:{line_no}"
                 view.window().open_file(file_loc, sublime.ENCODED_POSITION)
             elif file_name:
                 view.window().open_file(file_name)
@@ -46,13 +50,6 @@ class FindInFilesOpenAllFilesCommand(sublime_plugin.TextCommand):
         view = self.view
         content = view.substr(sublime.Region(0, view.size()))
         return [match.group(1) for match in re.finditer(r"^([^\s].+):$", content, re.MULTILINE)]
-
-
-class FindInFilesJumpFileCommand(sublime_plugin.TextCommand):
-    def run(self, edit, forward=True):
-        v = self.view
-        files = v.find_by_selector("entity.name.filename.find-in-files")
-        caret = v.sel()[0]
 
 
 class FindInFilesJumpCommand(sublime_plugin.TextCommand):
@@ -94,7 +91,7 @@ class FindInFilesJumpFileCommand(FindInFilesJumpCommand):
     def goto_match(self, match):
         v = self.view
         region = sublime.Region(match.begin(), match.begin())
-        super(FindInFilesJumpFileCommand, self).goto_match(region)
+        super().goto_match(region)
         top_offset = v.text_to_layout(region.begin())[1] - v.line_height()
         v.set_viewport_position((0, top_offset), True)
 
@@ -105,7 +102,7 @@ class FindInFilesJumpMatchCommand(FindInFilesJumpCommand):
 
     def goto_match(self, match):
         v = self.view
-        super(FindInFilesJumpMatchCommand, self).goto_match(match)
+        super().goto_match(match)
         vx, vy = v.viewport_position()
         vw, vh = v.viewport_extent()
         x, y = v.text_to_layout(match.begin())
@@ -136,6 +133,9 @@ class BfbFoldAndMoveToNextFileCommand(sublime_plugin.TextCommand):
     def run(self, edit):
         begin = self.get_begin()
         end = self.get_end()
+        # None with several cursors, or with the cursor above the first file.
+        if begin is None or end is None:
+            return
         self.view.fold(sublime.Region(begin.b + 1, end.a - 1))
         sublime.set_timeout_async(self.move_to_next, 0)
 
@@ -151,7 +151,7 @@ class BfbFoldAndMoveToNextFileCommand(sublime_plugin.TextCommand):
                 line_text = view.substr(line)
                 match = re.match(r"\S(.+):$", line_text)
                 if match:
-                    return(line)
+                    return line
                 line = view.line(line.begin() - 1)
         return None
 
@@ -159,11 +159,13 @@ class BfbFoldAndMoveToNextFileCommand(sublime_plugin.TextCommand):
         view = self.view
         if len(view.sel()) == 1:
             line = view.line(view.sel()[0])
-            while line.end() <= view.size():
-                line_text = view.substr(line)
-                if len(line_text) == 0:
-                    return(line)
+            while view.substr(line):
+                # No empty line before the end of the buffer: stop there, so
+                # the fold reaches the end instead of looping on the last line.
+                if line.end() >= view.size():
+                    return sublime.Region(view.size() + 1)
                 line = view.line(line.end() + 1)
+            return line
         return None
 
 
@@ -201,8 +203,7 @@ class BFBForceColorSchemeCommand(sublime_plugin.EventListener):
 def plugin_loaded():
     default_package_path = os.path.join(sublime.packages_path(), "Default")
 
-    if not os.path.exists(default_package_path):
-        os.makedirs(default_package_path)
+    os.makedirs(default_package_path, exist_ok=True)
 
     source_path = os.path.join(sublime.packages_path(), "BetterFindBuffer", "Find Results.hidden-tmLanguage")
     destination_path = os.path.join(default_package_path, "Find Results.hidden-tmLanguage")
